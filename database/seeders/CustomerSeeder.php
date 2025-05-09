@@ -15,33 +15,15 @@ class CustomerSeeder extends Seeder
     {
         $customers = [
             [
-                'name' => 'John Doe',
+                'name' => 'Customer1',
                 'contactNum' => '09123456789',
-                'points' => 150,
-                'eligibleForRewards' => true,
-            ],
-            [
-                'name' => 'Jane Smith',
-                'contactNum' => '09987654321',
-                'points' => 75,
+                'points' => 0,
                 'eligibleForRewards' => false,
             ],
             [
-                'name' => 'Mike Johnson',
-                'contactNum' => '09123123123',
-                'points' => 210,
-                'eligibleForRewards' => true,
-            ],
-            [
-                'name' => 'Sarah Williams',
-                'contactNum' => '09456456456',
-                'points' => 300,
-                'eligibleForRewards' => true,
-            ],
-            [
-                'name' => 'Robert Brown',
-                'contactNum' => '09789789789',
-                'points' => 50,
+                'name' => 'Customer2',
+                'contactNum' => '09091234567',
+                'points' => 0,
                 'eligibleForRewards' => false,
             ],
         ];
