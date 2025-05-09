@@ -16,6 +16,7 @@ class TransactionItem extends Model
         'price',
         'subtotal',
         'discount',
+        'is_free_item',
     ];
 
     protected $casts = [
@@ -23,6 +24,7 @@ class TransactionItem extends Model
         'price' => 'float',
         'subtotal' => 'float',
         'discount' => 'float',
+        'is_free_item' => 'boolean',
     ];
 
     public function transaction()

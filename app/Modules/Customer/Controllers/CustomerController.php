@@ -115,7 +115,14 @@ class CustomerController extends Controller
         DB::beginTransaction();
 
         try {
-            $reward = Reward::findOrFail($validated['reward_id']);
+            $reward = Reward::with('product')->findOrFail($validated['reward_id']);
+
+            // Check if reward is active
+            if (isset($reward->is_active) && !$reward->is_active) {
+                return response()->json([
+                    'error' => 'This reward is no longer available.'
+                ], Response::HTTP_BAD_REQUEST);
+            }
 
             // Check if customer has enough points
             if ($customer->points < $reward->pointsNeeded) {
@@ -143,11 +150,31 @@ class CustomerController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            // Prepare response based on reward type
+            $response = [
                 'customer' => $customer,
                 'reward' => $reward,
                 'message' => 'Reward redeemed successfully.'
-            ], Response::HTTP_OK);
+            ];
+
+            // Add type-specific data
+            switch ($reward->type) {
+                case 'percentage_discount':
+                    $response['discount_type'] = 'percentage';
+                    $response['discount_value'] = $reward->value;
+                    break;
+                
+                case 'free_item':
+                    $response['discount_type'] = 'free_item';
+                    $response['product'] = $reward->product;
+                    break;
+                
+                default:
+                    $response['discount_type'] = 'fixed';
+                    $response['discount_value'] = $reward->pointsNeeded;
+            }
+
+            return response()->json($response, Response::HTTP_OK);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['error' => $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
@@ -237,6 +264,8 @@ class CustomerController extends Controller
         }
 
         $availableRewards = Reward::where('pointsNeeded', '<=', $customer->points)
+            ->where('is_active', true)
+            ->with('product')
             ->orderBy('pointsNeeded', 'desc')
             ->get();
 

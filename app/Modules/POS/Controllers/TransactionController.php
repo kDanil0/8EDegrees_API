@@ -68,6 +68,7 @@ class TransactionController extends Controller
             'reference_number' => 'nullable|required_if:payment_mode,ewallet|string',
             'tendered_cash' => 'required_if:payment_mode,cash|numeric|min:0',
             'discount_id' => 'nullable|exists:discounts,id',
+            'reward_id' => 'nullable|exists:rewards,id',
         ]);
 
         DB::beginTransaction();
@@ -81,26 +82,96 @@ class TransactionController extends Controller
                 $totalAmount += ($subtotal - $discount);
             }
             
+            // Initialize variables for reward handling
+            $appliedReward = null;
+            $rewardDiscountAmount = 0;
+            $freeItemProduct = null;
+            $pointsEarned = 0;
+            
+            // Process reward if provided
+            if (!empty($validated['reward_id']) && !empty($validated['customer_id'])) {
+                $customer = Customer::find($validated['customer_id']);
+                $reward = \App\Models\Reward::with('product')->find($validated['reward_id']);
+                
+                if ($reward && $customer) {
+                    // Check if customer has enough points and the reward is active
+                    if ($customer->points >= $reward->pointsNeeded && $reward->is_active) {
+                        $appliedReward = $reward;
+                        
+                        // Handle different reward types
+                        switch ($reward->type) {
+                            case 'percentage_discount':
+                                // Apply percentage discount
+                                $rewardDiscountAmount = $totalAmount * ($reward->value / 100);
+                                break;
+                                
+                            case 'free_item':
+                                // Add free item to cart with 100% discount
+                                if ($reward->product) {
+                                    $freeItemProduct = $reward->product;
+                                    
+                                    // Create a transaction item for the free product
+                                    $freeItemData = [
+                                        'product_id' => $freeItemProduct->id,
+                                        'quantity' => 1,
+                                        'price' => $freeItemProduct->price,
+                                        'discount' => $freeItemProduct->price, // Full discount
+                                        'is_free_item' => true, // Mark as free item
+                                    ];
+                                    
+                                    // Add to validated items for later processing
+                                    $validated['items'][] = $freeItemData;
+                                }
+                                break;
+                                
+                            default:
+                                // Legacy fixed-amount discount (fallback for old rewards)
+                                $rewardDiscountAmount = $reward->pointsNeeded;
+                        }
+                        
+                        // Redeem the reward
+                        \App\Models\RewardsHistory::create([
+                            'customer_id' => $customer->id,
+                            'reward_id' => $reward->id,
+                        ]);
+                        
+                        // Deduct points
+                        $customer->points -= $reward->pointsNeeded;
+                        
+                        // Get the minimum points needed for any reward
+                        $minPointsNeeded = \App\Models\Reward::min('pointsNeeded');
+                        
+                        // Check if customer is still eligible for rewards
+                        $customer->eligibleForRewards = $customer->points >= ($minPointsNeeded ?? 0);
+                        $customer->save();
+                    }
+                }
+            }
+            
             // Apply percentage discount if discount_id is provided
             $discountAmount = 0;
             if (!empty($validated['discount_id'])) {
                 $discount = \App\Models\Discount::find($validated['discount_id']);
                 if ($discount) {
                     $discountAmount = $totalAmount * ($discount->percentage / 100);
-                    $totalAmount = $totalAmount - $discountAmount;
                 }
             }
+            
+            // Calculate final total after all discounts
+            $finalTotal = $totalAmount - $discountAmount - $rewardDiscountAmount;
+            $finalTotal = max($finalTotal, 0); // Ensure total doesn't go negative
 
             // Create transaction
             $transaction = Transaction::create([
                 'customer_id' => $validated['customer_id'] ?? null,
                 'product_id' => $validated['items'][0]['product_id'], // Set first product as reference
-                'total_amount' => $totalAmount,
+                'total_amount' => $finalTotal,
                 'timestamp' => now(),
-                'is_discount' => $validated['is_discount'],
+                'is_discount' => $validated['is_discount'] || !empty($validated['discount_id']) || !empty($appliedReward),
                 'payment_mode' => $validated['payment_mode'],
                 'reference_number' => $validated['reference_number'] ?? null,
                 'discount_id' => $validated['discount_id'] ?? null,
+                'reward_id' => $appliedReward ? $appliedReward->id : null,
                 'status' => Transaction::STATUS_COMPLETED,
             ]);
 
@@ -108,25 +179,29 @@ class TransactionController extends Controller
             foreach ($validated['items'] as $item) {
                 $subtotal = $item['quantity'] * $item['price'];
                 $discount = $item['discount'] ?? 0;
+                $isFreeItem = isset($item['is_free_item']) && $item['is_free_item'];
 
-                TransactionItem::create([
+                $transactionItem = TransactionItem::create([
                     'transaction_id' => $transaction->id,
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
                     'price' => $item['price'],
                     'subtotal' => $subtotal,
                     'discount' => $discount,
+                    'is_free_item' => $isFreeItem,
                 ]);
 
-                // Update product quantity
-                $product = Product::find($item['product_id']);
-                $product->quantity -= $item['quantity'];
-                $product->save();
+                // Update product quantity (skip for free items if needed)
+                if (!$isFreeItem) {
+                    $product = Product::find($item['product_id']);
+                    $product->quantity -= $item['quantity'];
+                    $product->save();
+                }
             }
 
             // Add loyalty points if customer is provided
             if ($validated['customer_id']) {
-                $customer = Customer::find($validated['customer_id']);
+                $customer = $customer ?? Customer::find($validated['customer_id']);
                 
                 // Get configurable points exchange rate
                 $exchangeRateConfig = SystemConfig::where('key', 'points_exchange_rate')->first();
@@ -146,7 +221,7 @@ class TransactionController extends Controller
                 }
                 
                 // Calculate points using the exchange rate
-                $pointsEarned = floor($totalAmount * $exchangeRate['points'] / $exchangeRate['php_amount']);
+                $pointsEarned = floor($finalTotal * $exchangeRate['points'] / $exchangeRate['php_amount']);
                 
                 $customer->points += $pointsEarned;
                 
@@ -165,6 +240,9 @@ class TransactionController extends Controller
                 'transaction' => $transaction->load(['customer', 'items.product', 'discount']),
                 'points_earned' => $pointsEarned ?? 0,
                 'discount_amount' => $discountAmount,
+                'reward_discount_amount' => $rewardDiscountAmount,
+                'applied_reward' => $appliedReward,
+                'free_item_product' => $freeItemProduct,
             ], Response::HTTP_CREATED);
         } catch (\Exception $e) {
             DB::rollBack();

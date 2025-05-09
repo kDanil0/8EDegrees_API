@@ -15,14 +15,15 @@ class Transaction extends Model
     const STATUS_CANCELED = 'canceled';
 
     protected $fillable = [
-        'product_id',
         'customer_id',
+        'product_id',
         'total_amount',
         'timestamp',
         'is_discount',
         'payment_mode',
         'reference_number',
         'discount_id',
+        'reward_id',
         'status',
     ];
 

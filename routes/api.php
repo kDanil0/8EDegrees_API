@@ -48,6 +48,7 @@ Route::prefix('supply-chain')->group(function () {
 Route::prefix('customer')->group(function () {
     Route::apiResource('customers', 'App\Modules\Customer\Controllers\CustomerController');
     Route::apiResource('rewards', 'App\Modules\Customer\Controllers\RewardController');
+    Route::get('rewards-active', ['App\Modules\Customer\Controllers\RewardController', 'getActiveRewards']);
     Route::apiResource('discounts', \App\Modules\Customer\Controllers\DiscountController::class);
     Route::get('discounts-active', [App\Modules\Customer\Controllers\DiscountController::class, 'getActiveDiscounts']);
     Route::get('rewards-history', 'App\Modules\Customer\Controllers\RewardsHistoryController@index');
