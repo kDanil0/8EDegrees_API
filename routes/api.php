@@ -7,6 +7,7 @@ use App\Modules\Inventory\Controllers\CategoryController;
 use App\Modules\SupplyChain\Controllers\SupplierController;
 use App\Modules\SupplyChain\Controllers\PurchaseOrderController;
 use App\Http\Controllers\AuthController;
+use App\Modules\Accounting\Controllers\TransactionHistoryController;
 
 // Auth routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -24,6 +25,8 @@ Route::prefix('inventory')->group(function () {
     // IMPORTANT: Custom routes must be defined BEFORE the resource routes
     Route::get('products/low-stock', [ProductController::class, 'lowStock']);
     Route::get('products/expiration-report', [ProductController::class, 'expirationReport']);
+    Route::get('products/deleted', [ProductController::class, 'deleted']);
+    Route::post('products/{id}/restore', [ProductController::class, 'restore']);
     
     // Using class references instead of strings
     Route::apiResource('products', ProductController::class);
@@ -75,6 +78,12 @@ Route::prefix('accounting')->group(function () {
     Route::get('reports/sales/summary', 'App\Modules\Accounting\Controllers\ReportController@salesSummary');
     Route::get('cash-drawer', 'App\Modules\Accounting\Controllers\ReportController@getCashDrawerOperations');
     Route::post('cash-drawer', 'App\Modules\Accounting\Controllers\ReportController@updateCashDrawerOperations');
+    
+    // Transaction History routes
+    Route::get('transactions', [TransactionHistoryController::class, 'index']);
+    Route::get('transactions/{transaction}', [TransactionHistoryController::class, 'show']);
+    Route::post('transactions/{transaction}/refund', [TransactionHistoryController::class, 'refund']);
+    Route::post('transactions/{transaction}/cancel', [TransactionHistoryController::class, 'cancel']);
 });
 
 // POS routes

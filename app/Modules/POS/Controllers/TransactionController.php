@@ -101,6 +101,7 @@ class TransactionController extends Controller
                 'payment_mode' => $validated['payment_mode'],
                 'reference_number' => $validated['reference_number'] ?? null,
                 'discount_id' => $validated['discount_id'] ?? null,
+                'status' => Transaction::STATUS_COMPLETED,
             ]);
 
             // Create transaction items

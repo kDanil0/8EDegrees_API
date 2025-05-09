@@ -14,9 +14,19 @@ class ProductController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $products = Product::with('category')->get();
+        // Check if we should include deleted products
+        $includeDeleted = $request->query('include_deleted', false);
+        
+        if ($includeDeleted) {
+            // Include soft deleted products
+            $products = Product::with('category')->withTrashed()->get();
+        } else {
+            // Default behavior - only active products
+            $products = Product::with('category')->get();
+        }
+        
         return response()->json($products, Response::HTTP_OK);
     }
 
@@ -127,8 +137,14 @@ class ProductController extends Controller
      */
     public function destroy(Product $product)
     {
-        $product->delete();
-        return response()->json(null, Response::HTTP_NO_CONTENT);
+        // Instead of hard delete, we'll soft delete (mark as deleted)
+        try {
+            $product->delete(); // This now uses the SoftDeletes trait
+            return response()->json(null, Response::HTTP_NO_CONTENT);
+        } catch (\Exception $e) {
+            \Log::error('Product delete error: ' . $e->getMessage());
+            return response()->json(['error' => 'Unable to delete product.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
     }
 
     /**
@@ -187,6 +203,35 @@ class ProductController extends Controller
             return 'Low Stock';
         } else {
             return 'In Stock';
+        }
+    }
+
+    /**
+     * Restore a soft-deleted product.
+     */
+    public function restore($id)
+    {
+        try {
+            $product = Product::withTrashed()->findOrFail($id);
+            $product->restore();
+            return response()->json($product->load('category'), Response::HTTP_OK);
+        } catch (\Exception $e) {
+            \Log::error('Product restore error: ' . $e->getMessage());
+            return response()->json(['error' => 'Unable to restore product.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+    
+    /**
+     * Get all soft-deleted products.
+     */
+    public function deleted()
+    {
+        try {
+            $products = Product::with('category')->onlyTrashed()->get();
+            return response()->json($products, Response::HTTP_OK);
+        } catch (\Exception $e) {
+            \Log::error('Get deleted products error: ' . $e->getMessage());
+            return response()->json([], Response::HTTP_OK);
         }
     }
 } 

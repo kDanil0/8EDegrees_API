@@ -23,6 +23,7 @@ class ReportController extends Controller
         $date = $request->input('date', Carbon::today()->toDateString());
         
         $sales = Transaction::whereDate('timestamp', $date)
+            ->where('status', 'completed')
             ->select(
                 DB::raw('DATE(timestamp) as date'),
                 DB::raw('SUM(total_amount) as total_sales'),
@@ -52,6 +53,12 @@ class ReportController extends Controller
             ];
         }
         
+        // Calculate expected cash dynamically always
+        $expectedCash = $sales['total_sales'] + $cashDrawer['cash_in'] - $cashDrawer['cash_out'];
+        
+        // Calculate short/over based on the dynamically calculated expected cash
+        $shortOver = $cashDrawer['cash_count'] - $expectedCash;
+        
         // Combine sales and cash drawer data
         $response = [
             'date' => $date,
@@ -60,9 +67,9 @@ class ReportController extends Controller
             'transaction_count' => $sales['transaction_count'],
             'cash_in' => $cashDrawer['cash_in'],
             'cash_out' => $cashDrawer['cash_out'],
-            'expected_cash' => $cashDrawer['expected_cash'] ?: $sales['total_sales'] + $cashDrawer['cash_in'] - $cashDrawer['cash_out'],
+            'expected_cash' => $expectedCash,
             'cash_count' => $cashDrawer['cash_count'],
-            'short_over' => $cashDrawer['short_over'] ?: ($cashDrawer['cash_count'] - ($sales['total_sales'] + $cashDrawer['cash_in'] - $cashDrawer['cash_out']))
+            'short_over' => $shortOver
         ];
         
         return response()->json($response, Response::HTTP_OK);
@@ -80,6 +87,7 @@ class ReportController extends Controller
         $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
         
         $dailySales = Transaction::whereBetween('timestamp', [$startDate, $endDate])
+            ->where('status', 'completed')
             ->select(
                 DB::raw('DATE(timestamp) as date'),
                 DB::raw('SUM(total_amount) as total_sales'),
@@ -117,6 +125,7 @@ class ReportController extends Controller
         $endDate = Carbon::createFromDate($year, 12, 31)->endOfYear();
         
         $monthlySales = Transaction::whereBetween('timestamp', [$startDate, $endDate])
+            ->where('status', 'completed')
             ->select(
                 DB::raw('MONTH(timestamp) as month'),
                 DB::raw('SUM(total_amount) as total_sales'),
@@ -165,6 +174,7 @@ class ReportController extends Controller
             ->join('products', 'transaction_items.product_id', '=', 'products.id')
             ->join('categories', 'products.category_id', '=', 'categories.id')
             ->whereBetween('transactions.timestamp', [$startDate, $endDate])
+            ->where('transactions.status', 'completed')
             ->select(
                 'products.id',
                 'products.name',
@@ -202,6 +212,7 @@ class ReportController extends Controller
             ->join('products', 'transaction_items.product_id', '=', 'products.id')
             ->join('categories', 'products.category_id', '=', 'categories.id')
             ->whereBetween('transactions.timestamp', [$startDate, $endDate])
+            ->where('transactions.status', 'completed')
             ->select(
                 'products.id',
                 'products.name',
@@ -245,15 +256,18 @@ class ReportController extends Controller
         
         // Get total sales amount
         $totalSales = Transaction::whereBetween('timestamp', [$startDate, $endDate])
+            ->where('status', 'completed')
             ->sum('total_amount');
             
         // Get total units sold
         $unitsSold = TransactionItem::join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->whereBetween('transactions.timestamp', [$startDate, $endDate])
+            ->where('transactions.status', 'completed')
             ->sum('transaction_items.quantity');
             
         // Get completed transaction count
         $completedTransactions = Transaction::whereBetween('timestamp', [$startDate, $endDate])
+            ->where('status', 'completed')
             ->count();
             
         // Debug statement
@@ -275,14 +289,16 @@ class ReportController extends Controller
     {
         $date = $request->input('date', Carbon::today()->toDateString());
         
+        // Get the total sales for the day to calculate expected cash
+        $totalSales = Transaction::whereDate('timestamp', $date)
+            ->where('status', 'completed')
+            ->sum('total_amount');
+        
         $cashDrawer = CashDrawerOperation::where('operation_date', $date)->first();
         
         if (!$cashDrawer) {
-            // Get the total sales for the day to calculate expected cash
-            $totalSales = Transaction::whereDate('timestamp', $date)
-                ->sum('total_amount');
-            
-            $cashDrawer = [
+            // If no record exists, create a default response
+            $response = [
                 'operation_date' => $date,
                 'cash_in' => 0,
                 'cash_out' => 0,
@@ -290,9 +306,17 @@ class ReportController extends Controller
                 'expected_cash' => $totalSales,
                 'short_over' => 0
             ];
+        } else {
+            // If record exists, calculate expected cash dynamically
+            $expectedCash = $totalSales + $cashDrawer->cash_in - $cashDrawer->cash_out;
+            $shortOver = $cashDrawer->cash_count - $expectedCash;
+            
+            $response = $cashDrawer->toArray();
+            $response['expected_cash'] = $expectedCash;
+            $response['short_over'] = $shortOver;
         }
         
-        return response()->json($cashDrawer, Response::HTTP_OK);
+        return response()->json($response, Response::HTTP_OK);
     }
     
     /**
@@ -308,21 +332,25 @@ class ReportController extends Controller
             'notes' => 'nullable|string'
         ]);
         
-        // Get total sales for the date
-        $totalSales = Transaction::whereDate('timestamp', $validated['operation_date'])
-            ->sum('total_amount');
-        
-        // Calculate expected cash and short/over
-        $expectedCash = $totalSales + $validated['cash_in'] - $validated['cash_out'];
-        $shortOver = $validated['cash_count'] - $expectedCash;
-        
-        $validated['expected_cash'] = $expectedCash;
-        $validated['short_over'] = $shortOver;
-        
+        // Only store the input values, not the calculated ones
+        // This ensures the expected_cash will be calculated dynamically each time
         $cashDrawer = CashDrawerOperation::updateOrCreate(
             ['operation_date' => $validated['operation_date']],
             $validated
         );
+        
+        // Get total sales for the date - for returning the current values
+        $totalSales = Transaction::whereDate('timestamp', $validated['operation_date'])
+            ->where('status', 'completed')
+            ->sum('total_amount');
+        
+        // Calculate expected cash and short/over for the response
+        $expectedCash = $totalSales + $validated['cash_in'] - $validated['cash_out'];
+        $shortOver = $validated['cash_count'] - $expectedCash;
+        
+        // Add calculated values to the response
+        $cashDrawer->expected_cash = $expectedCash;
+        $cashDrawer->short_over = $shortOver;
         
         return response()->json($cashDrawer, Response::HTTP_OK);
     }

@@ -9,6 +9,11 @@ class Transaction extends Model
 {
     use HasFactory;
 
+    // Transaction status constants
+    const STATUS_COMPLETED = 'completed';
+    const STATUS_REFUNDED = 'refunded';
+    const STATUS_CANCELED = 'canceled';
+
     protected $fillable = [
         'product_id',
         'customer_id',
@@ -18,6 +23,7 @@ class Transaction extends Model
         'payment_mode',
         'reference_number',
         'discount_id',
+        'status',
     ];
 
     protected $casts = [

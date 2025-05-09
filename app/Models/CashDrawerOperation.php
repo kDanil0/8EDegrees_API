@@ -14,8 +14,6 @@ class CashDrawerOperation extends Model
         'cash_in',
         'cash_out',
         'cash_count',
-        'expected_cash',
-        'short_over',
         'notes',
     ];
 
@@ -27,4 +25,18 @@ class CashDrawerOperation extends Model
         'expected_cash' => 'decimal:2',
         'short_over' => 'decimal:2',
     ];
+    
+    /**
+     * Prepare the model for saving to ensure expected_cash and short_over are not stored
+     */
+    protected static function boot()
+    {
+        parent::boot();
+        
+        static::saving(function ($model) {
+            // Set these fields to null so they will be dynamically calculated on retrieval
+            $model->expected_cash = null;
+            $model->short_over = null;
+        });
+    }
 } 
