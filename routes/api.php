@@ -7,6 +7,7 @@ use App\Modules\Inventory\Controllers\CategoryController;
 use App\Modules\SupplyChain\Controllers\SupplierController;
 use App\Modules\SupplyChain\Controllers\PurchaseOrderController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\UserController;
 use App\Modules\Accounting\Controllers\TransactionHistoryController;
 
 // Auth routes
@@ -91,4 +92,11 @@ Route::prefix('accounting')->group(function () {
 Route::prefix('pos')->group(function () {
     Route::apiResource('transactions', \App\Modules\POS\Controllers\TransactionController::class);
     Route::post('transactions/process', [App\Modules\POS\Controllers\TransactionController::class, 'processTransaction']);
+});
+
+// User Management Routes
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/users', [UserController::class, 'index']);
+    Route::post('/users', [UserController::class, 'store']);
+    Route::delete('/users/{id}', [UserController::class, 'destroy']);
 });
